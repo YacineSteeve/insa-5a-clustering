@@ -1,7 +1,7 @@
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, TypedDict
+from typing import Any, Dict, List, Literal, Tuple, TypedDict
 
-import numpy as np
+import numpy.typing as npt
 import pandas as pd
 from hdbscan import HDBSCAN
 from scipy.io import arff
@@ -9,10 +9,10 @@ from sklearn.base import ClusterMixin
 from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
 from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
 
-DATASET_DIR = Path("dataset/artificial")
-FEATURES_COLUMS = ["a0", "a1"]
-LABEL_COLUMN = "class"
 
+MethodType = Literal["k_means", "dbscan", "hdbscan", "hierarch"]
+Params = Dict[str, Any]
+ParamsOptions = List[Params]
 Metrics = TypedDict(
     "Metrics", 
     {
@@ -21,54 +21,62 @@ Metrics = TypedDict(
         "davies_bouldin_score": float
     }
 )
-Params = Dict[str, Any]
-ParamsOptions = List[Params]
 
-def get_k_means_params() -> ParamsOptions:
-    return [
-        {
-            "n_clusters": a,
-            "init": b,
-            "n_init": c,
-            "max_iter": d,
-            "tol": 1/e,
-            "algorithm": f
-        }
-        for a in range(2, 9)
-        for b in ["random", "k-means++"]
-        for c in range(5, 50, 5)
-        for d in range(100, 1100, 100)
-        for e in [10^2, 10^3, 10^4, 10^5, 10^6]
-        for f in ["lloyd", "elkan"]
-    ]
 
-def get_dbscan_params() -> ParamsOptions:
-    return [
+DATASET_DIR = Path("dataset/artificial")
+FEATURES_COLUMS = ["a0", "a1"]
+LABEL_COLUMN = "class"
+METHOD_TYPES: List[MethodType] = ["k_means", "dbscan", "hdbscan", "hierarch"]
 
-    ]
 
-def get_hdbscan_params() -> ParamsOptions:
-    return [
+def get_method_params_options(method_type: MethodType) -> ParamsOptions:
+    match method_type:
+        case "k_means":
+            return [
+                {
+                    "n_clusters": n_clusters,
+                    "init": init,
+                    "n_init": n_init,
+                    "max_iter": max_iter,
+                    "tol": tol,
+                    "algorithm": algorithm
+                }
+                for n_clusters in range(2, 9)
+                for init in ["random", "k-means++"]
+                for n_init in range(5, 25, 5)
+                for max_iter in range(100, 600, 100)
+                for tol in [10**-2, 10**-3, 10**-4, 10**-5, 10**-6]
+                for algorithm in ["lloyd", "elkan"]
+            ]
+        case "dbscan":
+            return [
 
-    ]
+            ]
+        case "hdbscan":
+            return [
 
-def get_hierarch_params() -> ParamsOptions:
-    return [
+            ]
+        case "hierarch":
+            return [
 
-    ]
+            ]
+        case _:
+            return []
 
-def parse_file(file: str) -> Tuple[Any, Any]:
+
+def parse_file(file: str) -> Tuple[npt.NDArray, npt.NDArray]:
     arff_file = arff.loadarff(DATASET_DIR / file)
 
     data, _ = arff_file
 
     dataframe = pd.DataFrame(data)
 
-    return dataframe[FEATURES_COLUMS], dataframe[[LABEL_COLUMN]]
+    return dataframe[FEATURES_COLUMS].to_numpy(), dataframe[[LABEL_COLUMN]].to_numpy()
+
 
 def get_metrics_for_method(
-        X: Any,
-        y: Any,
+        X: npt.NDArray,
+        y: npt.NDArray,
         method: ClusterMixin
     ) -> Metrics:
     prediction = method.fit_predict(X)
@@ -80,26 +88,33 @@ def get_metrics_for_method(
     }
 
 
-def analyse_file(file: str) -> None:
-    X, y = parse_file(file)
+def analyse_file(filename: str) -> None:
+    X, y = parse_file(filename)
 
-    for method_type, params_options in [
-        ("k_means", get_k_means_params()),
-        ("dbscan", get_dbscan_params()),
-        ("hdbscan", get_hdbscan_params()),
-        ("hierarch", get_hierarch_params()),
-    ]:
+    for method_type in METHOD_TYPES:
+        params_options = get_method_params_options(method_type=method_type)
+        params_options_count = len(params_options)
+
+        if params_options_count  == 0:
+            print(f"No params options to test for method '{method_type}', skipping this method")
+            continue
+
+        print(f"Testing {params_options_count} params options for method '{method_type}'...")
+
         for params in params_options:
             method: ClusterMixin
 
-            if method_type == "k_means":
-                method = KMeans(**params)
-            elif method_type == "dbscan":
-                method = DBSCAN(**params)
-            elif method_type == "hdbscan":
-                method = HDBSCAN(**params)
-            elif method_type == "hierarch":
-                method = AgglomerativeClustering(**params)
+            match method_type:
+                case "k_means":
+                    method = KMeans(**params)
+                case "dbscan":
+                    method = DBSCAN(**params)
+                case "hdbscan":
+                    method = HDBSCAN(**params)
+                case "hierarch":
+                    method = AgglomerativeClustering(**params)
+                case _:
+                    method = KMeans(**params)
 
             metrics = get_metrics_for_method(
                 X=X,
