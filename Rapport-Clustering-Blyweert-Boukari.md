@@ -63,14 +63,16 @@ Montrer les limites de KMEANS et AGGLO (par ex sur le cluster Bananes ou sur des
 
 POUR DBSCAN : 
 
--> Expliquer pourquoi on fait varier le nombre de clusters, etc…
+-> Expliquer pourquoi on fait varier le nombre min de voisins, epsilon, etc…
 -> Montrer pourquoi ça marche sur certains clusters qui ne marchaient pas avec les deux précédents
+-> Visualiser les résultats et les paramètres associés
 
 
 POUR HDBSCAN : 
 
--> Expliquer pourquoi on fait varier le nombre de clusters, etc…
--> Montrer pourquoi ça marche mieux sur certains clusters qui ne marchaient pas avec les deux précédents
+-> Expliquer pourquoi on fait varier le nombre min de voisins, epsilon, MinPts etc…
+-> Montrer pourquoi ça marche mieux sur certains clusters qui ne marchaient pas avec les trois précédents
+-> Visualiser les résultats et les paramètres associés
 
 
 4)
