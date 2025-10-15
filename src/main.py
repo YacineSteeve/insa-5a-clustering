@@ -14,22 +14,31 @@ from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bo
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 
-
+# Type definitions
 MethodType = Literal["k_means", "agglo", "dbscan", "hdbscan"]
-Params = Dict[str, Any]
-ParamsOptions = List[Params]
 Metrics = TypedDict(
-    "Metrics", 
+    "Metrics",
     {
-        "silhouette_score": float, 
-        "calinski_harabasz_score": float, 
+        "silhouette_score": float,
+        "calinski_harabasz_score": float,
         "davies_bouldin_score": float
     }
 )
+Params = Dict[str, Any]
+ParamsOptions = List[Params]
+Prediction = TypedDict(
+    "Prediction",
+    {
+        "method_type": MethodType,
+        "params": Params,
+        "labels": npt.NDArray,
+        "intermediary_plots_figures": List[plt.Figure]
+    }
+)
 
-
+# Constants
 DATASET_DIR = Path("dataset/artificial")
-METHOD_TYPES: List[MethodType] = ["k_means", "agglo", "dbscan", "hdbscan"]
+PLOTS_DIR = Path("plots")
 
 
 def get_method_params_options(method_type: MethodType) -> ParamsOptions:
@@ -99,10 +108,10 @@ def parse_file(file: str) -> Tuple[npt.NDArray, npt.NDArray, List[str], str]:
 
 
 def get_metrics_for_method(
-        X: npt.NDArray,
-        y: npt.NDArray,
-        method: ClusterMixin
-    ) -> Metrics:
+    X: npt.NDArray,
+    y: npt.NDArray,
+    method: ClusterMixin
+) -> Metrics:
     prediction = method.fit_predict(X)
 
     return {
@@ -112,76 +121,136 @@ def get_metrics_for_method(
     }
 
 
+def plot_best_predictions(
+    X_columns: List[str],
+    y_column: str,
+    X: npt.NDArray,
+    y: npt.NDArray,
+    best_predictions: List[Prediction]
+) -> plt.Figure:
+    predictions_count = len(best_predictions)
+    plots_counts = predictions_count + 2 # predictions & labels & raw
+    rows_count = plots_counts // 2 + plots_counts % 2
+
+    figure, axes = plt.subplots(rows_count, 2, figsize=(16, 9 * rows_count))
+
+    first_column, second_column = X[:, 0], X[:, 1]
+
+    axes[0, 0].scatter(first_column, second_column)
+    axes[0, 0].set_title("Raw data")
+    axes[0, 0].set_xlabel(X_columns[0])
+    axes[0, 0].set_ylabel(X_columns[1])
+
+    axes[0, 1].scatter(first_column, second_column, c=y)
+    axes[0, 1].set_title("Defined clusters")
+    axes[0, 1].set_xlabel(X_columns[0])
+    axes[0, 1].set_ylabel(X_columns[1])
+
+    start_index = plots_counts - predictions_count
+
+    for i in range(start_index, plots_counts):
+        prediction = best_predictions[i-start_index]
+        method_type = prediction["method_type"]
+        params = prediction["params"]
+        labels = prediction["labels"]
+
+        row, colum = i // 2, i % 2
+
+        axes[row, colum].scatter(first_column, second_column, c=labels)
+        axes[row, colum].set_title(f"{method_type} ({params})")
+        axes[row, colum].set_xlabel(X_columns[0])
+        axes[row, colum].set_ylabel(X_columns[1])
+
+    figure.suptitle(f"Best {y_column} predictions")
+
+    return figure
+
+
 def get_min_points_for_dbscan(X: npt.NDArray) -> int:
     return int(max(X.shape[1] + 1, np.log(X.shape[0])))
 
 
-def process_for_kmeans(X: npt.NDArray, y: npt.NDArray, X_columns: List[str], y_column: str) -> None:
+def process_for_kmeans(X: npt.NDArray) -> Prediction:
     k_clusters_silhouette = 0
     sil_score = 0
     n_clusters = list(range(2,30))
     for k in n_clusters:
-        kmeans = KMeans(n_clusters=k).fit(X)
-        labels = kmeans.labels_
+        kmeans = KMeans(n_clusters=k)
+        labels = kmeans.fit_predict(X)
         curr_score = silhouette_score(X, labels)
         if curr_score > sil_score:
             sil_score = curr_score
             k_clusters_silhouette = k
 
-    best_kmeans = KMeans(n_clusters=k_clusters_silhouette, random_state=42).fit(X)
-    labels = best_kmeans.labels_
+    best_kmeans = KMeans(n_clusters=k_clusters_silhouette, random_state=42)
+    best_prediction = best_kmeans.fit_predict(X)
     centroids = best_kmeans.cluster_centers_
 
-    plt.figure(figsize=(8, 6))
-    plt.scatter(X[:, 0], X[:, 1], c=labels, cmap="viridis", s=30, alpha=0.6)
-    plt.scatter(centroids[:, 0], centroids[:, 1], c="red", marker=".", s=200, label="Centroids")
-    plt.title(f"KMeans clustering avec k={k_clusters_silhouette} (silhouette score={sil_score:.2f})")
-    plt.legend()
-    plt.show()
+    figure, axes = plt.subplots(1, 1, figsize=(8, 6))
+    axes.scatter(X[:, 0], X[:, 1], c=best_prediction, cmap="viridis", s=30, alpha=0.6)
+    axes.scatter(centroids[:, 0], centroids[:, 1], c="red", marker=".", s=200, label="Centroids")
+    axes.set_title(f"KMeans clustering avec k={k_clusters_silhouette} (silhouette score={sil_score:.2f})")
+
+    return {
+        "method_type": "k_means",
+        "params": {
+            "n_clusters": k_clusters_silhouette,
+            "random_state": 42
+        },
+        "labels": best_prediction,
+        "intermediary_plots_figures": [figure]
+    }
 
 
-def process_for_agglo(X: npt.NDArray, y: npt.NDArray, X_columns: List[str], y_column: str) -> None:
+def process_for_agglo(X: npt.NDArray) -> Prediction:
     k_clusters_silhouette = 0
     sil_score = 0
     n_clusters = list(range(2,30))
     for k in n_clusters:
-        kmeans = AgglomerativeClustering(n_clusters=k).fit(X)
-        labels = kmeans.labels_
+        kmeans = AgglomerativeClustering(n_clusters=k)
+        labels = kmeans.fit_predict(X)
         curr_score = silhouette_score(X, labels)
         if curr_score > sil_score:
             sil_score = curr_score
             k_clusters_silhouette = k
 
-    best_kmeans = AgglomerativeClustering(n_clusters=k_clusters_silhouette).fit(X)
-    labels = best_kmeans.labels_
+    best_agglo = AgglomerativeClustering(n_clusters=k_clusters_silhouette)
+    best_prediction = best_agglo.fit_predict(X)
 
-    plt.figure(figsize=(8, 6))
-    plt.scatter(X[:, 0], X[:, 1], c=labels, cmap="viridis", s=30, alpha=0.6)
-    plt.title(f"Agglomerative Clustering avec k={k_clusters_silhouette} (silhouette score={sil_score:.2f})")
-    plt.legend()
-    plt.show()
+    figure, axes = plt.subplots(1, 1, figsize=(8, 6))
+    axes.scatter(X[:, 0], X[:, 1], c=best_prediction, cmap="viridis", s=30, alpha=0.6)
+    axes.set_title(f"Agglomerative clustering avec k={k_clusters_silhouette} (silhouette score={sil_score:.2f})")
 
-def process_for_dbscan(X: npt.NDArray, y: npt.NDArray, X_columns: List[str], y_column: str) -> None:
+    return {
+        "method_type": "agglo",
+        "params": {
+            "n_clusters": k_clusters_silhouette,
+        },
+        "labels": best_prediction,
+        "intermediary_plots_figures": [figure]
+    }
+
+def process_for_dbscan(X: npt.NDArray) -> Prediction:
     min_points = get_min_points_for_dbscan(X)
 
     # Compute k_distances
     nearest_neighbors = NearestNeighbors(n_neighbors=min_points)
     nearest_neighbors.fit(X)
-    distances, _ = nearest_neighbors.kneighbors(X)
-    k_distances = np.sort(distances[:, -1])
+    raw_k_distances, _ = nearest_neighbors.kneighbors()
+    k_distances = np.sort(raw_k_distances[:, -1])
 
     # Find the elbow and the best epsilon
-    n_k_distances = len(k_distances)
+    k_distances_count = len(k_distances)
     knee_locator = KneeLocator(
-        x=range(n_k_distances),
+        x=range(k_distances_count),
         y=k_distances,
         curve="convex",
         direction="increasing"
     )
     elbow = knee_locator.elbow
     epsilon0 = k_distances[elbow]
-    window = n_k_distances // 20
-    elbow_min, elbow_max = max(elbow - window, 0), min(elbow + window, n_k_distances - 1)
+    window = k_distances_count // 20
+    elbow_min, elbow_max = max(elbow - window, 0), min(elbow + window, k_distances_count - 1)
     left_slope = (k_distances[elbow] - k_distances[elbow_min]) / (elbow - elbow_min + 1e-9)
     right_slope = (k_distances[elbow_max] - k_distances[elbow]) / (elbow_max - elbow + 1e-9)
     sharpness = right_slope / (left_slope + 1e-9)
@@ -208,49 +277,69 @@ def process_for_dbscan(X: npt.NDArray, y: npt.NDArray, X_columns: List[str], y_c
     best_prediction = best_dbscan.fit_predict(X)
 
     # Plot results
-    figure, axes = plt.subplots(2, 2, figsize=(12, 9))
+    figure, axes = plt.subplots(1, 2, figsize=(12, 5))
 
-    axes[0, 0].plot(k_distances)
-    axes[0, 0].set_title("k_distances")
-    axes[0, 0].set_xlabel("k")
-    axes[0, 0].set_ylabel("k_distances")
-    axes[0, 0].axhline(x=epsilon0, color="red")
-    axes[0, 0].axhline(x=epsilon_min, color="green", linestyle="dashed")
-    axes[0, 0].axhline(x=epsilon_max, color="green", linestyle="dashed")
+    axes[0].plot(k_distances)
+    axes[0].set_title("k_distances")
+    axes[0].set_xlabel("k")
+    axes[0].set_ylabel("k_distances")
+    axes[0].axhline(y=epsilon0, color="red")
+    axes[0].axhline(y=epsilon_min, color="green", linestyle="dashed")
+    axes[0].axhline(y=epsilon_max, color="green", linestyle="dashed")
 
-    axes[0, 1].plot(epsilons_range, silhouette_scores)
-    axes[0, 1].set_title("Silhouette score")
-    axes[0, 1].set_xlabel("epsilon")
-    axes[0, 1].set_ylabel("Silhouette score")
-    axes[0, 1].axvline(x=best_epsilon, color="red", linestyle="dashed")
-    axes[0, 1].axhline(y=best_silhouette_score, color="red")
+    axes[1].plot(epsilons_range, silhouette_scores)
+    axes[1].set_title("Silhouette score")
+    axes[1].set_xlabel("epsilon")
+    axes[1].set_ylabel("Silhouette score")
+    axes[1].axvline(x=best_epsilon, color="red", linestyle="dashed")
+    axes[1].axhline(y=best_silhouette_score, color="red")
 
-    axes[1, 0].scatter(X[:, 0], X[:, 1], c=best_prediction)
-    axes[1, 0].set_title("Clusters")
-    axes[1, 0].set_xlabel(X_columns[0])
-    axes[1, 0].set_ylabel(X_columns[1])
+    return {
+        "method_type": "dbscan",
+        "params": {
+            "eps": float(best_epsilon),
+            "min_samples": min_points,
+        },
+        "labels": best_prediction,
+        "intermediary_plots_figures": [figure]
+    }
 
-    axes[1, 1].scatter(X[:, 0], X[:, 1], c=y)
-    axes[1, 1].set_title("Original clusters")
-    axes[1, 1].set_xlabel(X_columns[0])
-    axes[1, 1].set_ylabel(X_columns[1])
 
-    plt.show()
-
-def process_for_hdbscan(X: npt.NDArray, y: npt.NDArray, X_columns: List[str], y_column: str) -> None:
-    min_points = get_min_points_for_dbscan(X)
-
-    pass
+def process_for_hdbscan(X: npt.NDArray) -> Prediction:
+    return {
+        "method_type": "hdbscan",
+        "params": {},
+        "labels": HDBSCAN().fit_predict(X),
+        "intermediary_plots_figures": []
+    }
 
 
 def analyse_file(filename: str) -> None:
     X, y, X_columns, y_column = parse_file(filename)
 
-    process_for_kmeans(X, y, X_columns, y_column)
-    process_for_agglo(X, y, X_columns, y_column)
-    process_for_dbscan(X, y, X_columns, y_column)
-    process_for_hdbscan(X, y, X_columns, y_column)
+    best_predictions = [
+        process_for_kmeans(X),
+        process_for_agglo(X),
+        process_for_dbscan(X),
+        process_for_hdbscan(X)
+    ]
+
+    figure = plot_best_predictions(X_columns, y_column, X, y, best_predictions)
+
+    directory = PLOTS_DIR / filename.split(".")[0]
+    directory.mkdir(exist_ok=True)
+
+    figure.savefig(directory / "best_predictions.png")
+    plt.close(figure)
+
+    for prediction in best_predictions:
+        for intermediary_plots_figure in prediction["intermediary_plots_figures"]:
+            intermediary_plots_figure.savefig(directory / f"intermediary_plots_{prediction['method_type']}.png")
+            plt.close(intermediary_plots_figure)
 
 
 if __name__ == "__main__":
-    analyse_file("banana.arff")
+    PLOTS_DIR.mkdir(exist_ok=True)
+
+    for file in ["banana.arff"]:
+        analyse_file(file)
