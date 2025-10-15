@@ -9,8 +9,10 @@ from hdbscan import HDBSCAN
 from kneed import KneeLocator
 from scipy.io import arff
 from sklearn.base import ClusterMixin
-from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
 from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
+from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
+from sklearn.neighbors import NearestNeighbors
+from sklearn.preprocessing import StandardScaler
 
 MethodType = Literal["k_means", "agglo", "dbscan", "hdbscan"]
 Params = Dict[str, Any]
@@ -26,8 +28,6 @@ Metrics = TypedDict(
 
 
 DATASET_DIR = Path("dataset/artificial")
-FEATURES_COLUMNS = ["a0", "a1"]
-LABEL_COLUMN = "CLASS"
 METHOD_TYPES: List[MethodType] = ["k_means", "agglo", "dbscan", "hdbscan"]
 
 
@@ -67,7 +67,7 @@ def get_method_params_options(method_type: MethodType) -> ParamsOptions:
             return [
                 {
                     "eps": eps,
-                    "min_samples": min_samples, # max(3, ln(n)) where 3 = 2dim + 1
+                    "min_samples": min_samples,
                 }
                 for eps in np.linspace(0, 5, 10)
                 for min_samples in range(np.log(20))
@@ -85,7 +85,15 @@ def parse_file(file: str) -> Tuple[npt.NDArray, npt.NDArray]:
 
     dataframe = pd.DataFrame(data)
 
-    return dataframe[FEATURES_COLUMNS].to_numpy(), dataframe[[LABEL_COLUMN]].to_numpy()
+    *features_columns, label_column = dataframe.columns
+
+    X = dataframe[features_columns[:2]]
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    y_categories = dataframe[label_column].astype("category").cat.codes.to_numpy()
+
+    return X_scaled, y_categories
 
 
 def get_metrics_for_method(
@@ -100,6 +108,10 @@ def get_metrics_for_method(
         "calinski_harabasz_score": calinski_harabasz_score(X, prediction),
         "davies_bouldin_score": davies_bouldin_score(X, prediction)
     }
+
+
+def get_min_points_for_dbscan(X: npt.NDArray) -> int:
+    return int(max(X.shape[1] + 1, np.log(X.shape[0])))
 
 
 def process_for_kmeans(X: npt.NDArray, y: npt.NDArray) -> None:
@@ -130,10 +142,83 @@ def process_for_agglo(X: npt.NDArray, y: npt.NDArray) -> None:
 
 
 def process_for_dbscan(X: npt.NDArray, y: npt.NDArray) -> None:
-    pass
+    min_points = get_min_points_for_dbscan(X)
 
+    nearest_neighbors = NearestNeighbors(n_neighbors=min_points)
+    nearest_neighbors.fit(X)
+    distances, _ = nearest_neighbors.kneighbors(X)
+    k_distances = np.sort(distances[:, -1])
+
+    n_k_distances = len(k_distances)
+
+    knee_locator = KneeLocator(
+        x=range(n_k_distances),
+        y=k_distances,
+        curve="convex",
+        direction="increasing"
+    )
+    elbow = knee_locator.elbow
+
+    epsilon0 = k_distances[elbow]
+
+    window = n_k_distances // 20
+    elbow_min, elbow_max = max(elbow - window, 0), min(elbow + window, n_k_distances - 1)
+    left_slope = (k_distances[elbow] - k_distances[elbow_min]) / (elbow - elbow_min + 1e-9)
+    right_slope = (k_distances[elbow_max] - k_distances[elbow]) / (elbow_max - elbow + 1e-9)
+    sharpness = right_slope / (left_slope + 1e-9)
+    sharpness = np.clip(sharpness, 1, 10)
+    pct = np.interp(sharpness, [1, 10], [0.3, 0.05])
+    epsilon_min = epsilon0 * (1 - pct)
+    epsilon_max = epsilon0 * (1 + pct)
+
+    epsilons_range = np.linspace(epsilon_min, epsilon_max, 10)
+    silhouette_scores = np.array([])
+
+    for epsilon in epsilons_range:
+        dbscan = DBSCAN(eps=epsilon, min_samples=min_points)
+        prediction = dbscan.fit_predict(X)
+        silhouette_scores = np.append(silhouette_scores, silhouette_score(X, prediction))
+
+    best_silhouette_score_index = np.argmax(silhouette_scores)
+    best_silhouette_score = silhouette_scores[best_silhouette_score_index]
+    best_epsilon = epsilons_range[best_silhouette_score_index]
+
+    best_dbscan = DBSCAN(eps=best_epsilon, min_samples=min_points)
+    best_prediction = best_dbscan.fit_predict(X)
+
+    # Plot results (epsilon(k_distances) && Silhouette score && clusters) on the same plot
+    figure, axes = plt.subplots(2, 2, figsize=(12, 9))
+
+    axes[0, 0].plot(k_distances)
+    axes[0, 0].set_title("k_distances")
+    axes[0, 0].set_xlabel("k")
+    axes[0, 0].set_ylabel("k_distances")
+    axes[0, 0].axvline(x=elbow, color="red")
+    axes[0, 0].axvline(x=elbow_min, color="green", linestyle="dashed")
+    axes[0, 0].axvline(x=elbow_max, color="green", linestyle="dashed")
+
+    axes[0, 1].plot(epsilons_range, silhouette_scores)
+    axes[0, 1].set_title("Silhouette score")
+    axes[0, 1].set_xlabel("epsilon")
+    axes[0, 1].set_ylabel("Silhouette score")
+    axes[0, 1].axvline(x=best_epsilon, color="red", linestyle="dashed")
+    axes[0, 1].axhline(y=best_silhouette_score, color="red")
+
+    axes[1, 0].scatter(X[:, 0], X[:, 1], c=best_prediction)
+    axes[1, 0].set_title("Clusters")
+    axes[1, 0].set_xlabel("a0")
+    axes[1, 0].set_ylabel("a1")
+
+    axes[1, 1].scatter(X[:, 0], X[:, 1], c=y)
+    axes[1, 1].set_title("Original clusters")
+    axes[1, 1].set_xlabel("a0")
+    axes[1, 1].set_ylabel("a1")
+
+    plt.show()
 
 def process_for_hdbscan(X: npt.NDArray, y: npt.NDArray) -> None:
+    min_points = get_min_points_for_dbscan(X)
+
     pass
 
 
@@ -161,4 +246,4 @@ def analyse_file(filename: str) -> None:
 
 
 if __name__ == "__main__":
-    analyse_file("2d-10c.arff")
+    analyse_file("banana.arff")
