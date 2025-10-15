@@ -64,6 +64,12 @@ def get_method_params_options(method_type: MethodType) -> ParamsOptions:
             ]
         case "dbscan":
             return [
+                {
+                    "eps": eps,
+                    "min_samples": min_samples, # max(3, ln(n)) where 3 = 2dim + 1
+                }
+                for eps in np.linspace(0, 5, 10)
+                for min_samples in range(np.log(20))
             ]
         case "hdbscan":
             return [
