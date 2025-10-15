@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Tuple, TypedDict
 
+import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from hdbscan import HDBSCAN
@@ -10,7 +11,7 @@ from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bo
 from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
 
 
-MethodType = Literal["k_means", "dbscan", "hdbscan", "hierarch"]
+MethodType = Literal["k_means", "agglo", "dbscan", "hdbscan"]
 Params = Dict[str, Any]
 ParamsOptions = List[Params]
 Metrics = TypedDict(
@@ -26,7 +27,7 @@ Metrics = TypedDict(
 DATASET_DIR = Path("dataset/artificial")
 FEATURES_COLUMS = ["a0", "a1"]
 LABEL_COLUMN = "class"
-METHOD_TYPES: List[MethodType] = ["k_means", "dbscan", "hdbscan", "hierarch"]
+METHOD_TYPES: List[MethodType] = ["k_means", "agglo", "dbscan", "hdbscan"]
 
 
 def get_method_params_options(method_type: MethodType) -> ParamsOptions:
@@ -48,20 +49,26 @@ def get_method_params_options(method_type: MethodType) -> ParamsOptions:
                 for tol in [10**-2, 10**-3, 10**-4, 10**-5, 10**-6]
                 for algorithm in ["lloyd", "elkan"]
             ]
+        case "agglo":
+            return [
+                {
+                    "n_clusters": n_clusters,
+                    "distance_threshold": distance_threshold,
+                    "metric": metric,
+                    "linkage": linkage,
+                }
+                for n_clusters in range(2, 9)
+                for distance_threshold in np.linspace(0, 5, 10)
+                for metric in ["euclidean", "manhattan", "l1", "l2", "cosine"]
+                for linkage in ["ward", "complete", "average", "single"]
+            ]
         case "dbscan":
             return [
-
             ]
         case "hdbscan":
             return [
 
             ]
-        case "hierarch":
-            return [
-
-            ]
-        case _:
-            return []
 
 
 def parse_file(file: str) -> Tuple[npt.NDArray, npt.NDArray]:
@@ -107,14 +114,12 @@ def analyse_file(filename: str) -> None:
             match method_type:
                 case "k_means":
                     method = KMeans(**params)
+                case "agglo":
+                    method = AgglomerativeClustering(**params)
                 case "dbscan":
                     method = DBSCAN(**params)
                 case "hdbscan":
                     method = HDBSCAN(**params)
-                case "hierarch":
-                    method = AgglomerativeClustering(**params)
-                case _:
-                    method = KMeans(**params)
 
             metrics = get_metrics_for_method(
                 X=X,
