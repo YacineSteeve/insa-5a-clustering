@@ -101,41 +101,43 @@ def get_metrics_for_method(
     }
 
 
+def process_for_kmeans(X: npt.NDArray, y: npt.NDArray) -> None:
+    pass
+
+
+def process_for_agglo(X: npt.NDArray, y: npt.NDArray) -> None:
+    pass
+
+
+def process_for_dbscan(X: npt.NDArray, y: npt.NDArray) -> None:
+    pass
+
+
+def process_for_hdbscan(X: npt.NDArray, y: npt.NDArray) -> None:
+    pass
+
+
 def analyse_file(filename: str) -> None:
     X, y = parse_file(filename)
 
+    process_for_kmeans(X, y)
+    process_for_agglo(X, y)
+    process_for_dbscan(X, y)
+    process_for_hdbscan(X, y)
+
     for method_type in METHOD_TYPES:
-        params_options = get_method_params_options(method_type=method_type)
-        params_options_count = len(params_options)
 
-        if params_options_count  == 0:
-            print(f"No params options to test for method '{method_type}', skipping this method")
-            continue
+        """
+        metrics = get_metrics_for_method(
+            X=X,
+            y=y,
+            method=method
+        )
 
-        print(f"Testing {params_options_count} params options for method '{method_type}'...")
-
-        for params in params_options:
-            method: ClusterMixin
-
-            match method_type:
-                case "k_means":
-                    method = KMeans(**params)
-                case "agglo":
-                    method = AgglomerativeClustering(**params)
-                case "dbscan":
-                    method = DBSCAN(**params)
-                case "hdbscan":
-                    method = HDBSCAN(**params)
-
-            metrics = get_metrics_for_method(
-                X=X,
-                y=y,
-                method=method
-            )
-
-            print(f'Silhouette score: {metrics["silhouette_score"]}')
-            print(f'Calinski-Harabasz score: {metrics["calinski_harabasz_score"]}')
-            print(f'Davies-Bouldin score: {metrics["davies_bouldin_score"]}')
+        print(f'Silhouette score: {metrics["silhouette_score"]}')
+        print(f'Calinski-Harabasz score: {metrics["calinski_harabasz_score"]}')
+        print(f'Davies-Bouldin score: {metrics["davies_bouldin_score"]}')
+        """
 
 
 if __name__ == "__main__":
