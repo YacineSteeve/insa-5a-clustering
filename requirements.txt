@@ -5,7 +5,7 @@ hdbscan==0.8.40
 joblib==1.5.2
 kiwisolver==1.4.9
 kneed==0.8.5
-matplotlib==3.10.6
+matplotlib==3.10.7
 numpy==2.3.3
 packaging==25.0
 pandas==2.3.3
