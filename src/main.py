@@ -136,10 +136,28 @@ def process_for_kmeans(X: npt.NDArray, y: npt.NDArray) -> None:
     plt.title(f"KMeans clustering avec k={k_clusters_silhouette} (silhouette score={sil_score:.2f})")
     plt.legend()
     plt.show()
+    
 
 def process_for_agglo(X: npt.NDArray, y: npt.NDArray) -> None:
-    pass
+    k_clusters_silhouette = 0
+    sil_score = 0
+    n_clusters = list(range(2,30))
+    for k in n_clusters:
+        kmeans = AgglomerativeClustering(n_clusters=k).fit(X)
+        labels = kmeans.labels_
+        curr_score = silhouette_score(X, labels)
+        if curr_score > sil_score:
+            sil_score = curr_score
+            k_clusters_silhouette = k
 
+    best_kmeans = AgglomerativeClustering(n_clusters=k_clusters_silhouette).fit(X)
+    labels = best_kmeans.labels_
+
+    plt.figure(figsize=(8, 6))
+    plt.scatter(X[:, 0], X[:, 1], c=labels, cmap="viridis", s=30, alpha=0.6)
+    plt.title(f"Agglomerative Clustering avec k={k_clusters_silhouette} (silhouette score={sil_score:.2f})")
+    plt.legend()
+    plt.show()
 
 def process_for_dbscan(X: npt.NDArray, y: npt.NDArray) -> None:
     min_points = get_min_points_for_dbscan(X)
@@ -215,6 +233,7 @@ def process_for_dbscan(X: npt.NDArray, y: npt.NDArray) -> None:
     axes[1, 1].set_ylabel("a1")
 
     plt.show()
+
 
 def process_for_hdbscan(X: npt.NDArray, y: npt.NDArray) -> None:
     min_points = get_min_points_for_dbscan(X)
