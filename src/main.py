@@ -44,7 +44,7 @@ def get_method_params_options(method_type: MethodType) -> ParamsOptions:
                     "tol": tol,
                     "algorithm": algorithm
                 }
-                for n_clusters in range(2, 9)
+                for n_clusters in range(2, 20)
                 for init in ["random", "k-means++"]
                 for n_init in range(5, 25, 5)
                 for max_iter in range(100, 600, 100)
@@ -117,12 +117,49 @@ def get_min_points_for_dbscan(X: npt.NDArray) -> int:
 
 
 def process_for_kmeans(X: npt.NDArray, y: npt.NDArray, X_columns: List[str], y_column: str) -> None:
-    pass
+    k_clusters_silhouette = 0
+    sil_score = 0
+    n_clusters = list(range(2,30))
+    for k in n_clusters:
+        kmeans = KMeans(n_clusters=k).fit(X)
+        labels = kmeans.labels_
+        curr_score = silhouette_score(X, labels)
+        if curr_score > sil_score:
+            sil_score = curr_score
+            k_clusters_silhouette = k
+
+    best_kmeans = KMeans(n_clusters=k_clusters_silhouette, random_state=42).fit(X)
+    labels = best_kmeans.labels_
+    centroids = best_kmeans.cluster_centers_
+
+    plt.figure(figsize=(8, 6))
+    plt.scatter(X[:, 0], X[:, 1], c=labels, cmap="viridis", s=30, alpha=0.6)
+    plt.scatter(centroids[:, 0], centroids[:, 1], c="red", marker=".", s=200, label="Centroids")
+    plt.title(f"KMeans clustering avec k={k_clusters_silhouette} (silhouette score={sil_score:.2f})")
+    plt.legend()
+    plt.show()
 
 
 def process_for_agglo(X: npt.NDArray, y: npt.NDArray, X_columns: List[str], y_column: str) -> None:
-    pass
+    k_clusters_silhouette = 0
+    sil_score = 0
+    n_clusters = list(range(2,30))
+    for k in n_clusters:
+        kmeans = AgglomerativeClustering(n_clusters=k).fit(X)
+        labels = kmeans.labels_
+        curr_score = silhouette_score(X, labels)
+        if curr_score > sil_score:
+            sil_score = curr_score
+            k_clusters_silhouette = k
 
+    best_kmeans = AgglomerativeClustering(n_clusters=k_clusters_silhouette).fit(X)
+    labels = best_kmeans.labels_
+
+    plt.figure(figsize=(8, 6))
+    plt.scatter(X[:, 0], X[:, 1], c=labels, cmap="viridis", s=30, alpha=0.6)
+    plt.title(f"Agglomerative Clustering avec k={k_clusters_silhouette} (silhouette score={sil_score:.2f})")
+    plt.legend()
+    plt.show()
 
 def process_for_dbscan(X: npt.NDArray, y: npt.NDArray, X_columns: List[str], y_column: str) -> None:
     min_points = get_min_points_for_dbscan(X)
