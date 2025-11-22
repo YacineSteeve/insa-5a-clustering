@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Tuple, TypedDict
+from typing import Any, Dict, List, Literal, Tuple, TypedDict, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -32,6 +32,7 @@ Prediction = TypedDict(
     {
         "params": Params,
         "labels": npt.NDArray,
+        "metadata": Dict[str, Any]
     }
 )
 
@@ -138,6 +139,9 @@ def plot_result(
     axes[1].set_ylabel(X_columns[1])
 
     axes[2].scatter(first_column, second_column, c=prediction["labels"])
+    if method_type == "k-means" and "metadata" in prediction and "centroids" in prediction["metadata"]:
+        centroids = prediction["metadata"]["centroids"]
+        axes[2].scatter(centroids[:, 0], centroids[:, 1], c="red", marker=".", s=200, label="Centroids")
     axes[2].set_title(f"Predicted clusters ({prediction['params']})")
     axes[2].set_xlabel(X_columns[0])
     axes[2].set_ylabel(X_columns[1])
@@ -165,6 +169,12 @@ def process_for_kmeans(X: npt.NDArray) -> Prediction:
 
     best_kmeans = KMeans(n_clusters=k_clusters_silhouette, random_state=42)
     best_prediction = best_kmeans.fit_predict(X)
+    centroids = best_kmeans.cluster_centers_
+
+    # figure, axes = plt.subplots(1, 1, figsize=(8, 6))
+    # axes.scatter(X[:, 0], X[:, 1], c=best_prediction, cmap="viridis", s=30, alpha=0.6)
+    # axes.scatter(centroids[:, 0], centroids[:, 1], c="red", marker=".", s=200, label="Centroids")
+    # axes.set_title(f"KMeans clustering avec k={k_clusters_silhouette} (silhouette score={sil_score:.2f})")
 
     return {
         "params": {
@@ -172,6 +182,9 @@ def process_for_kmeans(X: npt.NDArray) -> Prediction:
             "random_state": 42
         },
         "labels": best_prediction,
+        "metadata": {
+            "centroids": centroids
+        }
     }
 
 
@@ -195,6 +208,7 @@ def process_for_agglo(X: npt.NDArray) -> Prediction:
             "n_clusters": k_clusters_silhouette,
         },
         "labels": best_prediction,
+        "metadata": {}
     }
 
 def process_for_dbscan(X: npt.NDArray) -> Prediction:
@@ -251,13 +265,22 @@ def process_for_dbscan(X: npt.NDArray) -> Prediction:
             "min_samples": min_points,
         },
         "labels": best_prediction,
+        "metadata": {}
     }
 
 
 def process_for_hdbscan(X: npt.NDArray) -> Prediction:
+    min_cluster_size = get_min_points_for_dbscan(X)
+
+    hdbscan = HDBSCAN(min_cluster_size=min_cluster_size)
+    best_prediction = hdbscan.fit_predict(X)
+
     return {
-        "params": {},
-        "labels": HDBSCAN().fit_predict(X),
+        "params": {
+            "min_cluster_size": min_cluster_size,
+        },
+        "labels": best_prediction,
+        "metadata": {}
     }
 
 
@@ -286,6 +309,7 @@ def process_file(method_type: MethodType, filename: str) -> None:
     directory.mkdir(exist_ok=True)
 
     figure = plot_result(method_type, X_columns, X, y_column, y, best_prediction)
+
     figure.tight_layout()
     figure.savefig(directory / f"{method_type}.png")
     plt.close(figure)
@@ -293,12 +317,14 @@ def process_file(method_type: MethodType, filename: str) -> None:
 
 if __name__ == "__main__":
     test_cases: List[Tuple[MethodType, List[str]]] = [
-        ("k-means", ["diamond9.arff", "banana.arff", "birch-rg2.arff"]),
-        ("agglo", ["diamond9.arff", "banana.arff", "birch-rg2.arff"]),
-        ("dbscan", ["diamond9.arff", "banana.arff", "birch-rg2.arff"]),
-        ("hdbscan", ["diamond9.arff", "banana.arff", "birch-rg2.arff"]),
+        ("k-means", ["2d-10c.arff", "diamond9.arff", "banana.arff", "twenty.arff"]),
+        ("agglo", ["diamond9.arff", "banana.arff"]),
+        ("dbscan", ["jain.arff", "spiral.arff", "diamond9.arff", "atom.arff", "twenty.arff"]),
+        ("hdbscan", ["jain.arff", "diamond9.arff", "banana.arff"]),
     ]
 
     for method_type, arff_files in test_cases:
+        print(f"Processing {method_type}...")
         for arff_file in arff_files:
+            print(f"--> {arff_file}")
             process_file(method_type, arff_file)
