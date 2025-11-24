@@ -185,11 +185,11 @@ def process_for_agglo(X: npt.NDArray) -> ExperimentResult:
 
         if scorer_name == "davies_bouldin_score":
             def plot_metadata(figure: plt.Axes) -> None:
-                silhouette_score_results = filter(
+                davies_bouldin_score_results = filter(
                     lambda result: result[1]["linkage"] == best_result[1]["linkage"],
                     results["davies_bouldin_score"]
                 )
-                sorted_results = sorted(silhouette_score_results, key=lambda x: x[1]["n_clusters"])
+                sorted_results = sorted(davies_bouldin_score_results, key=lambda x: x[1]["n_clusters"])
                 n_clusters = [result[1]["n_clusters"] for result in sorted_results]
                 scores = [result[0] for result in sorted_results]
                 figure.plot(n_clusters, scores, marker="o")
@@ -230,13 +230,28 @@ def process_for_dbscan(X: npt.NDArray, filename: str) -> ExperimentResult:
             "additional_plotter": blank_plotter
         }
 
+        if scorer_name == "calinski_harabasz_score":
+            def plot_metadata(figure: plt.Axes) -> None:
+                calinski_harabasz_score_results = filter(
+                    lambda result: result[1]["eps"] == best_result[1]["eps"],
+                    results["calinski_harabasz_score"]
+                )
+                sorted_results = sorted(calinski_harabasz_score_results, key=lambda x: x[1]["min_samples"])
+                min_samples = [result[1]["min_samples"] for result in sorted_results]
+                scores = [result[0] for result in sorted_results]
+                figure.plot(min_samples, scores, marker="o")
+                figure.set_xlabel("Minimum number of samples")
+                figure.set_ylabel("Calinski-Harabasz score")
+                figure.set_title("Calinski-Harabasz score per minimum number of samples")
+
+            experiment_results[scorer_name]["additional_plotter"] = plot_metadata
+
     return experiment_results
 
 
 def process_for_hdbscan(X: npt.NDArray) -> ExperimentResult:
     params_grid = {
         "min_cluster_size": list(range(2, 21)),
-        "min_samples": [None],
         "cluster_selection_method": ["leaf", "eom"],
     }
 
@@ -260,6 +275,22 @@ def process_for_hdbscan(X: npt.NDArray) -> ExperimentResult:
             "labels": best_result[2],
             "additional_plotter": blank_plotter
         }
+
+        if scorer_name == "calinski_harabasz_score":
+            def plot_metadata(figure: plt.Axes) -> None:
+                calinski_harabasz_score_results = filter(
+                    lambda result: result[1]["cluster_selection_method"] == best_result[1]["cluster_selection_method"],
+                    results["calinski_harabasz_score"]
+                )
+                sorted_results = sorted(calinski_harabasz_score_results, key=lambda x: x[1]["min_cluster_size"])
+                min_cluster_sizes = [result[1]["min_cluster_size"] for result in sorted_results]
+                scores = [result[0] for result in sorted_results]
+                figure.plot(min_cluster_sizes, scores, marker="o")
+                figure.set_xlabel("Minimum cluster size")
+                figure.set_ylabel("Calinski-Harabasz score")
+                figure.set_title("Calinski-Harabasz score per minimum cluster size")
+
+            experiment_results[scorer_name]["additional_plotter"] = plot_metadata
 
     return experiment_results
 
@@ -299,10 +330,10 @@ def process_file(method_type: MethodType, filename: str) -> None:
 
 if __name__ == "__main__":
     test_cases: List[Tuple[MethodType, List[str]]] = [
-        #("k-means", ["2d-10c", "diamond9", "banana", "twenty"]),
-        ("agglo", ["diamond9", "banana", "twenty"]),
-        #("dbscan", ["jain", "spiral", "diamond9", "atom", "twenty"]),
-        #("hdbscan", ["dpb", "cluto-t4-8k", "jain", "diamond9", "banana", "ds2c2sc13"]),
+        ("k-means", ["2d-10c", "diamond9", "banana", "twenty"]),
+        ("agglo", ["2d-10c", "diamond9", "banana", "twenty"]),
+        ("dbscan", ["jain", "spiral", "diamond9", "atom", "twenty"]),
+        ("hdbscan", ["dpb", "cluto-t4-8k", "jain", "diamond9", "banana", "ds2c2sc13"]),
     ]
 
     for method_type_, arff_files in test_cases:
