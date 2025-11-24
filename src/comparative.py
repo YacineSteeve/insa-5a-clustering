@@ -1,3 +1,4 @@
+from math import ceil
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Tuple, TypedDict, Optional, cast
 
@@ -5,11 +6,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-from hdbscan import HDBSCAN
 from kneed import KneeLocator
 from scipy.io import arff
+from scipy.signal import savgol_filter
 from sklearn.base import ClusterMixin
-from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
+from sklearn.cluster import KMeans, DBSCAN, HDBSCAN, AgglomerativeClustering
 from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
@@ -249,7 +250,33 @@ def process_for_agglo(X: npt.NDArray) -> Prediction:
     }
 
 def process_for_dbscan(X: npt.NDArray) -> Prediction:
-    min_points = get_min_points_for_dbscan(X)
+    def find_epsilon_knee(k_distances):
+        # Smooth curve
+        k_distances_s = savgol_filter(k_distances, 51, 3)
+
+        x = np.linspace(0, 1, len(k_distances))
+
+        elbows = []
+        for curve in ["concave", "convex"]:
+            kl = KneeLocator(
+                x, k_distances_s,
+                curve=curve,
+                direction="increasing",
+                interp_method="polynomial"
+            )
+            if kl.elbow is not None:
+                elbows.append(kl.elbow)
+
+        if elbows:
+            elbow = int(np.median(elbows))
+        else:
+            # fallback: maximum slope change
+            elbow = np.argmax(np.gradient(k_distances_s))
+
+        eps = k_distances[elbow]
+        return eps
+
+    min_points = int(max(X.shape[1] + 1, np.log(X.shape[0])))
 
     # Compute k_distances
     nearest_neighbors = NearestNeighbors(n_neighbors=min_points)
@@ -257,67 +284,30 @@ def process_for_dbscan(X: npt.NDArray) -> Prediction:
     raw_k_distances, _ = nearest_neighbors.kneighbors()
     k_distances = np.sort(raw_k_distances[:, -1])
 
-    # Find the elbow and the best epsilon
-    k_distances_count = len(k_distances)
-    knee_locator = KneeLocator(
-        x=range(k_distances_count),
-        y=k_distances,
-        curve="convex",
-        direction="increasing"
-    )
-    elbow = knee_locator.elbow
-    epsilon0 = k_distances[elbow]
-    window = k_distances_count // 20
-    elbow_min, elbow_max = max(elbow - window, 0), min(elbow + window, k_distances_count - 1)
-    left_slope = (k_distances[elbow] - k_distances[elbow_min]) / (elbow - elbow_min + 1e-9)
-    right_slope = (k_distances[elbow_max] - k_distances[elbow]) / (elbow_max - elbow + 1e-9)
-    sharpness = right_slope / (left_slope + 1e-9)
-    sharpness = np.clip(sharpness, 1, 10)
-    pct = np.interp(sharpness, [1, 10], [0.3, 0.05])
-    epsilon_min = epsilon0 * (1 - pct)
-    epsilon_max = epsilon0 * (1 + pct)
+    epsilon = find_epsilon_knee(k_distances)
 
-    # Find the best epsilon
-    epsilons_range = np.linspace(epsilon_min, epsilon_max, 10)
-    silhouette_scores = np.array([])
-
-    for epsilon in epsilons_range:
-        dbscan = DBSCAN(eps=epsilon, min_samples=min_points)
-        prediction = dbscan.fit_predict(X)
-        if len(set(prediction)) == 1:
-            silhouette_scores = np.append(silhouette_scores, 0)
-        else:
-            silhouette_scores = np.append(silhouette_scores, silhouette_score(X, prediction))
-
-    best_silhouette_score_index = np.argmax(silhouette_scores)
-    best_silhouette_score = silhouette_scores[best_silhouette_score_index]
-    best_epsilon = epsilons_range[best_silhouette_score_index]
+    dbscan = DBSCAN(eps=epsilon, min_samples=min_points)
+    prediction = dbscan.fit_predict(X)
+    if len(set(prediction)) < 2:
+        score = 0
+    else:
+        score = silhouette_score(X, prediction)
 
     # Compute the best prediction
-    best_dbscan = DBSCAN(eps=best_epsilon, min_samples=min_points)
+    best_dbscan = DBSCAN(eps=epsilon, min_samples=min_points)
     best_prediction = best_dbscan.fit_predict(X)
 
     # Plot results
-    figure, axes = plt.subplots(1, 2, figsize=(12, 5))
+    figure, axes = plt.subplots(1, 1, figsize=(12, 5))
 
-    axes[0].plot(k_distances)
-    axes[0].set_title("k_distances")
-    axes[0].set_xlabel("k")
-    axes[0].set_ylabel("k_distances")
-    axes[0].axhline(y=epsilon0, color="red")
-    axes[0].axhline(y=epsilon_min, color="green", linestyle="dashed")
-    axes[0].axhline(y=epsilon_max, color="green", linestyle="dashed")
-
-    axes[1].plot(epsilons_range, silhouette_scores)
-    axes[1].set_title("Silhouette score")
-    axes[1].set_xlabel("epsilon")
-    axes[1].set_ylabel("Silhouette score")
-    axes[1].axvline(x=best_epsilon, color="red", linestyle="dashed")
-    axes[1].axhline(y=best_silhouette_score, color="red")
+    axes.plot(k_distances)
+    axes.set_title("k_distances")
+    axes.set_xlabel("index")
+    axes.set_ylabel("k_distances")
 
     return {
         "params": {
-            "eps": float(best_epsilon),
+            "eps": float(epsilon),
             "min_samples": min_points,
         },
         "labels": best_prediction,
@@ -383,8 +373,5 @@ def analyse_file(filename: str, method_types: Optional[List[MethodType]]) -> Non
 
 
 if __name__ == "__main__":
-    for arff_file in ["diamond9.arff", "banana.arff", "spiral.arff"]:
-        analyse_file(arff_file, ["k-means", "agglo"])
-
-    for arff_file in ["diamond9.arff", "banana.arff", "spiral.arff"]:
-        analyse_file(arff_file, ["dbscan", "hdbscan"])
+    for arff_file in ["jain.arff", "spiral.arff", "diamond9.arff", "atom.arff", "twenty.arff"]:
+        analyse_file(arff_file, ["dbscan"])
