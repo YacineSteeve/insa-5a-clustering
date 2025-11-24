@@ -100,7 +100,7 @@ def plot_result(
         scorer: prediction["score"]
     }
 
-    figure.suptitle(f"Result of {method_type} ({",".join(f"{key}: {value}" for key, value in infos.items())})")
+    figure.suptitle(f"Result of {method_type} ({','.join(f'{key}: {value}' for key, value in infos.items())})")
 
     return figure
 
